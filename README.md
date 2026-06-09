@@ -22,16 +22,25 @@
 
 ## Development Plan
 
-1. Phase 1: HTTP server scaffold (echo) with static file serving
-2. Phase 2: RSS 2.0 generator with iTunes extension
-3. Phase 3: Directory watcher + auto-ingest pipeline
-4. Phase 4: Episode metadata extraction (ffprobe, ID3)
-5. Phase 5: Analytics middleware (download tracking)
-6. Phase 6: WebSub publisher implementation
-7. Phase 7: Web UI for upload and management
+1. ✅ Phase 1: HTTP server scaffold (echo) with static file serving
+2. ✅ Phase 2: RSS 2.0 generator with iTunes extension
+3. ✅ Phase 3: Directory watcher + auto-ingest pipeline
+4. ✅ Phase 4: Episode metadata extraction (ffprobe, ID3)
+5. ✅ Phase 5: Analytics middleware (download tracking)
+6. ✅ Phase 6: WebSub publisher implementation
+7. ✅ Phase 7: Web UI for upload and management
 8. Phase 8: Single-binary build and release
 
 ---
+
+## Admin Dashboard
+
+The web UI is available at `/admin` and provides:
+
+- **Podcast Settings**: Edit feed metadata (title, description, author, email, copyright, image URL, category, language, explicit flag)
+- **Upload Episode**: Drag-and-drop or click-to-browse audio file upload (supports MP3, M4A, OGG, WAV)
+- **Episode Management**: View all episodes in a sortable table, edit metadata inline, delete episodes
+- **Analytics**: Download counts, unique listeners, recent activity (via `/api/analytics/*` endpoints)
 
 ## Getting Started
 
@@ -42,15 +51,17 @@
 ### Build
 
 ```bash
-# See PLAN.md for detailed build instructions per phase
 cd neoncast
+go build -o neoncast ./cmd/neoncast
 ```
 
 ### Run
 
 ```bash
-# See PLAN.md for run instructions
+./neoncast
 ```
+
+The server starts on port 8080 by default. Visit `http://localhost:8080/admin` for the dashboard.
 
 ---
 
