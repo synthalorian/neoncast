@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -12,12 +13,22 @@ import (
 	"neoncast/internal/config"
 	"neoncast/internal/ingest"
 	"neoncast/internal/server"
+	"neoncast/internal/static"
 	"neoncast/internal/store"
+	"neoncast/internal/version"
 	"neoncast/internal/watcher"
 	"neoncast/internal/websub"
 )
 
 func main() {
+	versionFlag := flag.Bool("version", false, "print version and exit")
+	flag.Parse()
+
+	if *versionFlag {
+		fmt.Println(version.String())
+		os.Exit(0)
+	}
+
 	fmt.Println("neoncast -- self-hosted podcast hosting")
 
 	cfg := config.Default()
@@ -44,8 +55,7 @@ func main() {
 	feedURL := baseURL + "/feed"
 	publisher := websub.New(cfg.HubURLs, feedURL)
 
-	// Create server
-	srv := server.New(cfg, st, an, publisher)
+	srv := server.NewWithStaticFS(cfg, st, an, publisher, static.FS())
 
 	// Create watcher + ingest pipeline
 	pipeline := ingest.New(st, cfg.ContentPath, baseURL, publisher)
