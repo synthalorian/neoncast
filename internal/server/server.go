@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -32,10 +33,16 @@ type Server struct {
 	store     *store.Store
 	analytics *analytics.Analytics
 	publisher publisher
+	staticFS  fs.FS
 }
 
 // New creates a new Server with routes registered.
 func New(cfg config.Config, st *store.Store, an *analytics.Analytics, pub publisher) *Server {
+	return NewWithStaticFS(cfg, st, an, pub, nil)
+}
+
+// NewWithStaticFS creates a new Server with embedded static assets.
+func NewWithStaticFS(cfg config.Config, st *store.Store, an *analytics.Analytics, pub publisher, staticFS fs.FS) *Server {
 	e := echo.New()
 	e.HideBanner = true
 
@@ -51,6 +58,7 @@ func New(cfg config.Config, st *store.Store, an *analytics.Analytics, pub publis
 		store:     st,
 		analytics: an,
 		publisher: pub,
+		staticFS:  staticFS,
 	}
 
 	s.registerRoutes()
@@ -81,13 +89,29 @@ func (s *Server) registerRoutes() {
 	s.echo.GET("/api/analytics/recent", s.handleAnalyticsRecent)
 
 	// Admin dashboard
-	s.echo.File("/admin", filepath.Join(s.cfg.StaticPath, "dashboard.html"))
+	if s.staticFS != nil {
+		s.echo.GET("/admin", func(c echo.Context) error {
+			data, err := fs.ReadFile(s.staticFS, "dashboard.html")
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{
+					"error": "failed to load dashboard",
+				})
+			}
+			return c.HTMLBlob(http.StatusOK, data)
+		})
+	} else {
+		s.echo.File("/admin", filepath.Join(s.cfg.StaticPath, "dashboard.html"))
+	}
 	s.echo.GET("/admin/", func(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/admin")
 	})
 
 	// Static files (fallback)
-	s.echo.Static("/", s.cfg.StaticPath)
+	if s.staticFS != nil {
+		s.echo.GET("/*", echo.WrapHandler(http.FileServer(http.FS(s.staticFS))))
+	} else {
+		s.echo.Static("/", s.cfg.StaticPath)
+	}
 }
 
 // handleHealth returns service health status.

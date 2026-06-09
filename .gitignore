@@ -6,5 +6,6 @@
 *.test
 *.out
 /neoncast
+build/
 vendor/
 dist/

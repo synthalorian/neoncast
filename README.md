@@ -29,7 +29,7 @@
 5. ✅ Phase 5: Analytics middleware (download tracking)
 6. ✅ Phase 6: WebSub publisher implementation
 7. ✅ Phase 7: Web UI for upload and management
-8. Phase 8: Single-binary build and release
+8. ✅ Phase 8: Single-binary build and release
 
 ---
 
@@ -51,8 +51,13 @@ The web UI is available at `/admin` and provides:
 ### Build
 
 ```bash
-cd neoncast
-go build -o neoncast ./cmd/neoncast
+make build
+```
+
+Or manually:
+
+```bash
+go build -ldflags "-X neoncast/internal/version.Version=$(git describe --tags --always) -X neoncast/internal/version.Commit=$(git rev-parse --short HEAD) -X neoncast/internal/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o neoncast ./cmd/neoncast
 ```
 
 ### Run
@@ -62,6 +67,39 @@ go build -o neoncast ./cmd/neoncast
 ```
 
 The server starts on port 8080 by default. Visit `http://localhost:8080/admin` for the dashboard.
+
+### Check Version
+
+```bash
+./neoncast -version
+```
+
+### Cross-Platform Release Build
+
+Build binaries for all supported platforms:
+
+```bash
+make release
+```
+
+Or use the release script directly:
+
+```bash
+./scripts/release.sh v1.0.0
+```
+
+This produces binaries in `build/`:
+- `neoncast-linux-amd64`
+- `neoncast-linux-arm64`
+- `neoncast-darwin-amd64`
+- `neoncast-darwin-arm64`
+- `neoncast-windows-amd64.exe`
+
+### Run Tests
+
+```bash
+make test
+```
 
 ---
 
