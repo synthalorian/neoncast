@@ -281,7 +281,7 @@ func (s *Server) handleUpload(c echo.Context) error {
 		GUID:       guid,
 		PubDate:    time.Now(),
 		Duration:   0,
-		FileURL:    fmt.Sprintf("http://localhost:%s/episodes/%s", s.cfg.Port, filename),
+		FileURL:    fmt.Sprintf("%s/episodes/%s", s.cfg.BaseURL, filename),
 		FileLength: info.Size(),
 		FileType:   mimeType,
 		Explicit:   false,

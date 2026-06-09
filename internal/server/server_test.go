@@ -475,3 +475,381 @@ func TestUploadNotifiesPublisher(t *testing.T) {
 		t.Errorf("expected publisher to be called once, got %d", pub.calls.Load())
 	}
 }
+
+func TestListEpisodes(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	_ = st.Add(models.Episode{Title: "Episode 1", GUID: "ep-1", PubDate: time.Now()})
+	_ = st.Add(models.Episode{Title: "Episode 2", GUID: "ep-2", PubDate: time.Now().Add(-time.Hour)})
+	_ = st.Save()
+
+	srv := New(cfg, st, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/episodes", nil)
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `"Title":"Episode 1"`) {
+		t.Errorf("expected Episode 1 in response, got %s", body)
+	}
+	if !strings.Contains(body, `"Title":"Episode 2"`) {
+		t.Errorf("expected Episode 2 in response, got %s", body)
+	}
+}
+
+func TestGetEpisode(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	_ = st.Add(models.Episode{Title: "Test Episode", GUID: "test-guid", PubDate: time.Now()})
+	_ = st.Save()
+
+	srv := New(cfg, st, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/episodes/test-guid", nil)
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `"Title":"Test Episode"`) {
+		t.Errorf("expected episode title, got %s", body)
+	}
+}
+
+func TestGetEpisodeNotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/episodes/nonexistent", nil)
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", rec.Code)
+	}
+}
+
+func TestUpdateEpisode(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	_ = st.Add(models.Episode{Title: "Original Title", GUID: "update-guid", PubDate: time.Now()})
+	_ = st.Save()
+
+	srv := New(cfg, st, nil, nil)
+
+	body := `{"title":"Updated Title","description":"New description","duration":3600,"explicit":true,"season":2,"episode":5}`
+	req := httptest.NewRequest(http.MethodPut, "/api/episodes/update-guid", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	resp := rec.Body.String()
+	if !strings.Contains(resp, `"Title":"Updated Title"`) {
+		t.Errorf("expected updated title, got %s", resp)
+	}
+
+	ep, ok := st.GetByGUID("update-guid")
+	if !ok {
+		t.Fatal("episode not found after update")
+	}
+	if ep.Title != "Updated Title" {
+		t.Errorf("expected title 'Updated Title', got %s", ep.Title)
+	}
+	if ep.Description != "New description" {
+		t.Errorf("expected description 'New description', got %s", ep.Description)
+	}
+	if ep.Duration != 3600 {
+		t.Errorf("expected duration 3600, got %d", ep.Duration)
+	}
+	if !ep.Explicit {
+		t.Error("expected explicit to be true")
+	}
+	if ep.Season != 2 {
+		t.Errorf("expected season 2, got %d", ep.Season)
+	}
+	if ep.Episode != 5 {
+		t.Errorf("expected episode 5, got %d", ep.Episode)
+	}
+}
+
+func TestUpdateEpisodeNotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st, nil, nil)
+
+	body := `{"title":"Updated Title"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/episodes/nonexistent", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", rec.Code)
+	}
+}
+
+func TestDeleteEpisode(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	_ = st.Add(models.Episode{Title: "To Delete", GUID: "delete-guid", PubDate: time.Now()})
+	_ = st.Save()
+
+	srv := New(cfg, st, nil, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/episodes/delete-guid", nil)
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d", rec.Code)
+	}
+
+	if st.Has("delete-guid") {
+		t.Error("expected episode to be deleted")
+	}
+}
+
+func TestDeleteEpisodeNotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st, nil, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/episodes/nonexistent", nil)
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", rec.Code)
+	}
+}
+
+func TestUploadEndpoint(t *testing.T) {
+	tmpDir := t.TempDir()
+	contentDir := t.TempDir()
+	cfg := config.Config{
+		Port:        "8080",
+		StaticPath:  tmpDir,
+		ContentPath: contentDir,
+		BaseURL:     "https://podcast.example.com",
+	}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st, nil, nil)
+
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	part, err := mw.CreateFormFile("file", "test-upload.mp3")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := io.WriteString(part, "fake mp3 audio data"); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/upload", &b)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `"Title":"Test Upload"`) {
+		t.Errorf("expected title in response, got %s", body)
+	}
+	if !strings.Contains(body, `"FileType":"audio/mpeg"`) {
+		t.Errorf("expected audio/mpeg file type, got %s", body)
+	}
+
+	expectedPath := filepath.Join(contentDir, "test-upload.mp3")
+	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
+		t.Error("expected uploaded file to exist")
+	}
+
+	if len(st.All()) != 1 {
+		t.Errorf("expected 1 episode in store, got %d", len(st.All()))
+	}
+}
+
+func TestUploadMissingFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st, nil, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/upload", nil)
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rec.Code)
+	}
+}
+
+func TestGetPodcast(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.Config{
+		Port:       "8080",
+		StaticPath: tmpDir,
+		Podcast: config.PodcastMeta{
+			Title:    "Test Podcast",
+			Author:   "Test Author",
+			Language: "en",
+		},
+	}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/podcast", nil)
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `"Title":"Test Podcast"`) {
+		t.Errorf("expected podcast title, got %s", body)
+	}
+	if !strings.Contains(body, `"Author":"Test Author"`) {
+		t.Errorf("expected podcast author, got %s", body)
+	}
+}
+
+func TestUpdatePodcast(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.Config{
+		Port:       "8080",
+		StaticPath: tmpDir,
+		Podcast: config.PodcastMeta{
+			Title:    "Original Title",
+			Language: "en-us",
+		},
+	}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st, nil, nil)
+
+	body := `{"title":"New Title","description":"New description","author":"New Author","email":"new@example.com","copyright":"2024","image_url":"https://example.com/image.jpg","category":"Technology","explicit":true,"language":"en"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/podcast", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	resp := rec.Body.String()
+	if !strings.Contains(resp, `"Title":"New Title"`) {
+		t.Errorf("expected updated title, got %s", resp)
+	}
+	if !strings.Contains(resp, `"Author":"New Author"`) {
+		t.Errorf("expected updated author, got %s", resp)
+	}
+	if !strings.Contains(resp, `"Language":"en"`) {
+		t.Errorf("expected updated language, got %s", resp)
+	}
+
+	if srv.cfg.Podcast.Title != "New Title" {
+		t.Errorf("expected title 'New Title', got %s", srv.cfg.Podcast.Title)
+	}
+	if srv.cfg.Podcast.Explicit != true {
+		t.Error("expected explicit to be true")
+	}
+}
+
+func TestAdminDashboardRoute(t *testing.T) {
+	tmpDir := t.TempDir()
+	dashboardFile := filepath.Join(tmpDir, "dashboard.html")
+	if err := os.WriteFile(dashboardFile, []byte("<html><body>Admin Dashboard</body></html>"), 0644); err != nil {
+		t.Fatalf("create dashboard file: %v", err)
+	}
+
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Admin Dashboard") {
+		t.Errorf("expected dashboard content, got %s", body)
+	}
+}
+
+func TestAdminDashboardRedirect(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected status 302, got %d", rec.Code)
+	}
+
+	location := rec.Header().Get("Location")
+	if location != "/admin" {
+		t.Errorf("expected redirect to /admin, got %s", location)
+	}
+}
