@@ -21,16 +21,21 @@ import (
 	"neoncast/internal/store"
 )
 
+type publisher interface {
+	Publish(ctx context.Context) error
+}
+
 // Server wraps the Echo instance and dependencies.
 type Server struct {
 	echo      *echo.Echo
 	cfg       config.Config
 	store     *store.Store
 	analytics *analytics.Analytics
+	publisher publisher
 }
 
 // New creates a new Server with routes registered.
-func New(cfg config.Config, st *store.Store, an *analytics.Analytics) *Server {
+func New(cfg config.Config, st *store.Store, an *analytics.Analytics, pub publisher) *Server {
 	e := echo.New()
 	e.HideBanner = true
 
@@ -45,6 +50,7 @@ func New(cfg config.Config, st *store.Store, an *analytics.Analytics) *Server {
 		cfg:       cfg,
 		store:     st,
 		analytics: an,
+		publisher: pub,
 	}
 
 	s.registerRoutes()
@@ -95,7 +101,7 @@ func (s *Server) handleFeed(c echo.Context) error {
 	podcast := models.Podcast{
 		Title:       s.cfg.Podcast.Title,
 		Description: s.cfg.Podcast.Description,
-		Link:        "http://localhost:" + s.cfg.Port,
+		Link:        s.cfg.BaseURL,
 		Language:    s.cfg.Podcast.Language,
 		Author:      s.cfg.Podcast.Author,
 		Email:       s.cfg.Podcast.Email,
@@ -106,8 +112,9 @@ func (s *Server) handleFeed(c echo.Context) error {
 	}
 
 	episodes := s.store.All()
+	feedURL := s.cfg.BaseURL + "/feed"
 
-	data, err := rss.Generate(podcast, episodes)
+	data, err := rss.Generate(podcast, episodes, s.cfg.HubURLs, feedURL)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
@@ -180,6 +187,7 @@ func (s *Server) handleUpdateEpisode(c echo.Context) error {
 		})
 	}
 
+	s.notifyHubs()
 	return c.JSON(http.StatusOK, ep)
 }
 
@@ -199,6 +207,7 @@ func (s *Server) handleDeleteEpisode(c echo.Context) error {
 		})
 	}
 
+	s.notifyHubs()
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -290,6 +299,7 @@ func (s *Server) handleUpload(c echo.Context) error {
 		})
 	}
 
+	s.notifyHubs()
 	return c.JSON(http.StatusCreated, ep)
 }
 
@@ -330,7 +340,15 @@ func (s *Server) handleUpdatePodcast(c echo.Context) error {
 	s.cfg.Podcast.Explicit = req.Explicit
 	s.cfg.Podcast.Language = req.Language
 
+	s.notifyHubs()
 	return c.JSON(http.StatusOK, s.cfg.Podcast)
+}
+
+func (s *Server) notifyHubs() {
+	if s.publisher == nil {
+		return
+	}
+	go s.publisher.Publish(context.Background())
 }
 
 func (s *Server) handleAnalyticsDownloads(c echo.Context) error {

@@ -14,6 +14,7 @@ import (
 	"neoncast/internal/server"
 	"neoncast/internal/store"
 	"neoncast/internal/watcher"
+	"neoncast/internal/websub"
 )
 
 func main() {
@@ -39,12 +40,15 @@ func main() {
 		log.Fatalf("load analytics: %v", err)
 	}
 
+	baseURL := cfg.BaseURL
+	feedURL := baseURL + "/feed"
+	publisher := websub.New(cfg.HubURLs, feedURL)
+
 	// Create server
-	srv := server.New(cfg, st, an)
+	srv := server.New(cfg, st, an, publisher)
 
 	// Create watcher + ingest pipeline
-	baseURL := fmt.Sprintf("http://localhost:%s", cfg.Port)
-	pipeline := ingest.New(st, cfg.ContentPath, baseURL)
+	pipeline := ingest.New(st, cfg.ContentPath, baseURL, publisher)
 	w := watcher.New(cfg.WatchPath, pipeline)
 
 	if err := w.Start(); err != nil {

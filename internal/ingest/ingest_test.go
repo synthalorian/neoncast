@@ -13,7 +13,7 @@ func TestNew(t *testing.T) {
 	tmpDir := t.TempDir()
 	st := store.New(tmpDir)
 
-	p := New(st, tmpDir, "http://localhost:8080")
+	p := New(st, tmpDir, "http://localhost:8080", nil)
 	if p == nil {
 		t.Fatal("expected pipeline, got nil")
 	}
@@ -24,7 +24,7 @@ func TestProcessFile(t *testing.T) {
 	contentDir := t.TempDir()
 	st := store.New(tmpDir)
 
-	p := New(st, contentDir, "http://localhost:8080")
+	p := New(st, contentDir, "http://localhost:8080", nil)
 
 	// Create a fake mp3 file
 	srcFile := filepath.Join(tmpDir, "my-test-episode.mp3")
@@ -67,7 +67,7 @@ func TestProcessWithSidecar(t *testing.T) {
 	contentDir := t.TempDir()
 	st := store.New(tmpDir)
 
-	p := New(st, contentDir, "http://localhost:8080")
+	p := New(st, contentDir, "http://localhost:8080", nil)
 
 	// Create mp3 + sidecar description
 	srcFile := filepath.Join(tmpDir, "described.mp3")
@@ -91,7 +91,7 @@ func TestProcessDuplicate(t *testing.T) {
 	contentDir := t.TempDir()
 	st := store.New(tmpDir)
 
-	p := New(st, contentDir, "http://localhost:8080")
+	p := New(st, contentDir, "http://localhost:8080", nil)
 
 	srcFile := filepath.Join(tmpDir, "dup.mp3")
 	_ = os.WriteFile(srcFile, []byte("audio"), 0644)
@@ -111,7 +111,7 @@ func TestProcessM4A(t *testing.T) {
 	contentDir := t.TempDir()
 	st := store.New(tmpDir)
 
-	p := New(st, contentDir, "http://localhost:8080")
+	p := New(st, contentDir, "http://localhost:8080", nil)
 
 	srcFile := filepath.Join(tmpDir, "episode.m4a")
 	_ = os.WriteFile(srcFile, []byte("audio"), 0644)
@@ -133,7 +133,7 @@ func TestProcessOGG(t *testing.T) {
 	contentDir := t.TempDir()
 	st := store.New(tmpDir)
 
-	p := New(st, contentDir, "http://localhost:8080")
+	p := New(st, contentDir, "http://localhost:8080", nil)
 
 	srcFile := filepath.Join(tmpDir, "episode.ogg")
 	_ = os.WriteFile(srcFile, []byte("audio"), 0644)
