@@ -3,7 +3,12 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -30,6 +35,7 @@ func New(cfg config.Config, st *store.Store) *Server {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.RequestID())
+	e.Use(middleware.CORS())
 
 	s := &Server{
 		echo:  e,
@@ -47,6 +53,23 @@ func (s *Server) registerRoutes() {
 	s.echo.GET("/health", s.handleHealth)
 	s.echo.GET("/feed", s.handleFeed)
 	s.echo.Static("/episodes", s.cfg.ContentPath)
+
+	// Admin API
+	s.echo.GET("/api/episodes", s.handleListEpisodes)
+	s.echo.GET("/api/episodes/:guid", s.handleGetEpisode)
+	s.echo.PUT("/api/episodes/:guid", s.handleUpdateEpisode)
+	s.echo.DELETE("/api/episodes/:guid", s.handleDeleteEpisode)
+	s.echo.POST("/api/upload", s.handleUpload)
+	s.echo.GET("/api/podcast", s.handleGetPodcast)
+	s.echo.PUT("/api/podcast", s.handleUpdatePodcast)
+
+	// Admin dashboard
+	s.echo.File("/admin", filepath.Join(s.cfg.StaticPath, "dashboard.html"))
+	s.echo.GET("/admin/", func(c echo.Context) error {
+		return c.Redirect(http.StatusFound, "/admin")
+	})
+
+	// Static files (fallback)
 	s.echo.Static("/", s.cfg.StaticPath)
 }
 
@@ -59,12 +82,16 @@ func (s *Server) handleHealth(c echo.Context) error {
 
 func (s *Server) handleFeed(c echo.Context) error {
 	podcast := models.Podcast{
-		Title:       "neoncast Feed",
-		Description: "Auto-generated podcast feed",
+		Title:       s.cfg.Podcast.Title,
+		Description: s.cfg.Podcast.Description,
 		Link:        "http://localhost:" + s.cfg.Port,
-		Language:    "en-us",
-		Author:      "neoncast",
-		Explicit:    false,
+		Language:    s.cfg.Podcast.Language,
+		Author:      s.cfg.Podcast.Author,
+		Email:       s.cfg.Podcast.Email,
+		Copyright:   s.cfg.Podcast.Copyright,
+		ImageURL:    s.cfg.Podcast.ImageURL,
+		Category:    s.cfg.Podcast.Category,
+		Explicit:    s.cfg.Podcast.Explicit,
 	}
 
 	episodes := s.store.All()
@@ -77,6 +104,222 @@ func (s *Server) handleFeed(c echo.Context) error {
 	}
 
 	return c.Blob(http.StatusOK, "application/rss+xml; charset=utf-8", data)
+}
+
+// handleListEpisodes returns all episodes.
+func (s *Server) handleListEpisodes(c echo.Context) error {
+	return c.JSON(http.StatusOK, s.store.All())
+}
+
+// handleGetEpisode returns a single episode by GUID.
+func (s *Server) handleGetEpisode(c echo.Context) error {
+	guid := c.Param("guid")
+	ep, ok := s.store.GetByGUID(guid)
+	if !ok {
+		return c.JSON(http.StatusNotFound, map[string]string{
+			"error": "episode not found",
+		})
+	}
+	return c.JSON(http.StatusOK, ep)
+}
+
+// updateEpisodeRequest represents the fields that can be updated.
+type updateEpisodeRequest struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Duration    int    `json:"duration"`
+	Explicit    bool   `json:"explicit"`
+	Season      int    `json:"season"`
+	Episode     int    `json:"episode"`
+}
+
+// handleUpdateEpisode updates episode metadata.
+func (s *Server) handleUpdateEpisode(c echo.Context) error {
+	guid := c.Param("guid")
+	ep, ok := s.store.GetByGUID(guid)
+	if !ok {
+		return c.JSON(http.StatusNotFound, map[string]string{
+			"error": "episode not found",
+		})
+	}
+
+	var req updateEpisodeRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "invalid request body",
+		})
+	}
+
+	ep.Title = req.Title
+	ep.Description = req.Description
+	ep.Duration = req.Duration
+	ep.Explicit = req.Explicit
+	ep.Season = req.Season
+	ep.Episode = req.Episode
+
+	if err := s.store.Update(ep); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	if err := s.store.Save(); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, ep)
+}
+
+// handleDeleteEpisode removes an episode.
+func (s *Server) handleDeleteEpisode(c echo.Context) error {
+	guid := c.Param("guid")
+
+	if err := s.store.Delete(guid); err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	if err := s.store.Save(); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// handleUpload accepts an audio file upload and creates an episode.
+func (s *Server) handleUpload(c echo.Context) error {
+	file, err := c.FormFile("file")
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "missing file field",
+		})
+	}
+
+	src, err := file.Open()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "open uploaded file: " + err.Error(),
+		})
+	}
+	defer src.Close()
+
+	filename := filepath.Base(file.Filename)
+	destPath := filepath.Join(s.cfg.ContentPath, filename)
+
+	// Avoid overwriting existing files
+	if _, err := os.Stat(destPath); err == nil {
+		filename = fmt.Sprintf("%d-%s", time.Now().Unix(), filename)
+		destPath = filepath.Join(s.cfg.ContentPath, filename)
+	}
+
+	if err := os.MkdirAll(s.cfg.ContentPath, 0755); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "create content dir: " + err.Error(),
+		})
+	}
+
+	dst, err := os.Create(destPath)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "create destination file: " + err.Error(),
+		})
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "copy file: " + err.Error(),
+		})
+	}
+
+	ext := strings.ToLower(filepath.Ext(filename))
+	mimeType := "audio/mpeg"
+	switch ext {
+	case ".m4a":
+		mimeType = "audio/mp4"
+	case ".ogg":
+		mimeType = "audio/ogg"
+	case ".wav":
+		mimeType = "audio/wav"
+	}
+
+	info, err := os.Stat(destPath)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "stat file: " + err.Error(),
+		})
+	}
+
+	guid := store.GenerateGUID(filename)
+	ep := models.Episode{
+		Title:      store.FileToTitle(filename),
+		GUID:       guid,
+		PubDate:    time.Now(),
+		Duration:   0,
+		FileURL:    fmt.Sprintf("http://localhost:%s/episodes/%s", s.cfg.Port, filename),
+		FileLength: info.Size(),
+		FileType:   mimeType,
+		Explicit:   false,
+	}
+
+	if err := s.store.Add(ep); err != nil {
+		return c.JSON(http.StatusConflict, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	if err := s.store.Save(); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusCreated, ep)
+}
+
+// handleGetPodcast returns the podcast configuration.
+func (s *Server) handleGetPodcast(c echo.Context) error {
+	return c.JSON(http.StatusOK, s.cfg.Podcast)
+}
+
+// updatePodcastRequest represents the podcast fields that can be updated.
+type updatePodcastRequest struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Author      string `json:"author"`
+	Email       string `json:"email"`
+	Copyright   string `json:"copyright"`
+	ImageURL    string `json:"image_url"`
+	Category    string `json:"category"`
+	Explicit    bool   `json:"explicit"`
+	Language    string `json:"language"`
+}
+
+// handleUpdatePodcast updates podcast metadata.
+func (s *Server) handleUpdatePodcast(c echo.Context) error {
+	var req updatePodcastRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "invalid request body",
+		})
+	}
+
+	s.cfg.Podcast.Title = req.Title
+	s.cfg.Podcast.Description = req.Description
+	s.cfg.Podcast.Author = req.Author
+	s.cfg.Podcast.Email = req.Email
+	s.cfg.Podcast.Copyright = req.Copyright
+	s.cfg.Podcast.ImageURL = req.ImageURL
+	s.cfg.Podcast.Category = req.Category
+	s.cfg.Podcast.Explicit = req.Explicit
+	s.cfg.Podcast.Language = req.Language
+
+	return c.JSON(http.StatusOK, s.cfg.Podcast)
 }
 
 // Start begins listening for requests.

@@ -127,6 +127,19 @@ func (s *Store) Delete(guid string) error {
 	return fmt.Errorf("episode with GUID %q not found", guid)
 }
 
+// GetByGUID returns a single episode by GUID.
+func (s *Store) GetByGUID(guid string) (models.Episode, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, ep := range s.episodes {
+		if ep.GUID == guid {
+			return ep, true
+		}
+	}
+	return models.Episode{}, false
+}
+
 // Has checks if an episode exists by GUID.
 func (s *Store) Has(guid string) bool {
 	s.mu.RLock()

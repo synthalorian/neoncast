@@ -2,6 +2,19 @@ package config
 
 import "os"
 
+// PodcastMeta holds podcast feed metadata configurable via the admin API.
+type PodcastMeta struct {
+	Title       string
+	Description string
+	Author      string
+	Email       string
+	Copyright   string
+	ImageURL    string
+	Category    string
+	Explicit    bool
+	Language    string
+}
+
 // Config holds application configuration.
 type Config struct {
 	Port        string
@@ -9,6 +22,7 @@ type Config struct {
 	WatchPath   string
 	ContentPath string
 	DataPath    string
+	Podcast     PodcastMeta
 }
 
 // Default returns sensible defaults.
@@ -29,6 +43,12 @@ func Default() Config {
 		WatchPath:   watchPath,
 		ContentPath: contentPath,
 		DataPath:    dataPath,
+		Podcast: PodcastMeta{
+			Title:       "neoncast Feed",
+			Description: "Auto-generated podcast feed",
+			Author:      "neoncast",
+			Language:    "en-us",
+		},
 	}
 }
 

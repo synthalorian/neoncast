@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>neoncast Admin</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background: #f5f5f5;
+    color: #333;
+    line-height: 1.6;
+  }
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #ddd;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+  }
+  header a {
+    color: #0066cc;
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+  header a:hover { text-decoration: underline; }
+  .card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .card h2 {
+    margin-top: 0;
+    font-size: 1.1rem;
+    color: #222;
+  }
+  label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: 500;
+    font-size: 0.9rem;
+  }
+  input[type="text"], input[type="email"], input[type="number"], textarea, select {
+    width: 100%;
+    padding: 8px 10px;
+    margin-bottom: 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.95rem;
+    font-family: inherit;
+  }
+  textarea { resize: vertical; min-height: 60px; }
+  input[type="checkbox"] { margin-right: 6px; }
+  .row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .row > div { flex: 1; min-width: 200px; }
+  button {
+    background: #0066cc;
+    color: #fff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { background: #0052a3; }
+  button.secondary {
+    background: #6c757d;
+  }
+  button.secondary:hover { background: #545b62; }
+  button.danger {
+    background: #dc3545;
+  }
+  button.danger:hover { background: #c82333; }
+  .actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 8px;
+    border-bottom: 1px solid #eee;
+  }
+  th {
+    font-weight: 600;
+    color: #555;
+    border-bottom: 2px solid #ddd;
+  }
+  tr:hover { background: #f9f9f9; }
+  .empty {
+    color: #888;
+    font-style: italic;
+    padding: 20px 0;
+  }
+  .message {
+    padding: 10px 14px;
+    border-radius: 4px;
+    margin-bottom: 16px;
+    display: none;
+  }
+  .message.show { display: block; }
+  .message.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+  .message.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+  .modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.4);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: #fff;
+    border-radius: 8px;
+    padding: 24px;
+    width: 90%;
+    max-width: 520px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .modal h3 { margin-top: 0; }
+  .upload-area {
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    padding: 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .upload-area:hover, .upload-area.dragover {
+    border-color: #0066cc;
+  }
+  .upload-area input[type="file"] {
+    display: none;
+  }
+  .spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid #fff;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>neoncast Admin</h1>
+    <div>
+      <a href="/feed" target="_blank">Public Feed &rarr;</a>
+    </div>
+  </header>
+
+  <div id="message" class="message"></div>
+
+  <div class="card">
+    <h2>Podcast Settings</h2>
+    <form id="podcast-form">
+      <div class="row">
+        <div>
+          <label for="p-title">Title</label>
+          <input type="text" id="p-title" name="title" required>
+        </div>
+        <div>
+          <label for="p-author">Author</label>
+          <input type="text" id="p-author" name="author">
+        </div>
+      </div>
+      <label for="p-description">Description</label>
+      <textarea id="p-description" name="description"></textarea>
+      <div class="row">
+        <div>
+          <label for="p-email">Email</label>
+          <input type="email" id="p-email" name="email">
+        </div>
+        <div>
+          <label for="p-copyright">Copyright</label>
+          <input type="text" id="p-copyright" name="copyright">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="p-image">Image URL</label>
+          <input type="text" id="p-image" name="image_url">
+        </div>
+        <div>
+          <label for="p-category">Category</label>
+          <input type="text" id="p-category" name="category">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="p-language">Language</label>
+          <input type="text" id="p-language" name="language" value="en-us">
+        </div>
+        <div style="display:flex;align-items:center;padding-top:24px;">
+          <label><input type="checkbox" id="p-explicit" name="explicit"> Explicit</label>
+        </div>
+      </div>
+      <button type="submit">Save Podcast Settings</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Upload Episode</h2>
+    <div class="upload-area" id="upload-area">
+      <p>Drag & drop an audio file here or click to browse</p>
+      <input type="file" id="upload-input" accept="audio/*">
+    </div>
+    <div id="upload-status" style="margin-top:12px;font-size:0.9rem;color:#555;"></div>
+  </div>
+
+  <div class="card">
+    <h2>Episodes</h2>
+    <div id="episodes-list">
+      <p class="empty">Loading episodes...</p>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <h3>Edit Episode</h3>
+    <form id="edit-form">
+      <input type="hidden" id="e-guid">
+      <label for="e-title">Title</label>
+      <input type="text" id="e-title" name="title" required>
+      <label for="e-description">Description</label>
+      <textarea id="e-description" name="description"></textarea>
+      <div class="row">
+        <div>
+          <label for="e-duration">Duration (seconds)</label>
+          <input type="number" id="e-duration" name="duration" min="0">
+        </div>
+        <div>
+          <label for="e-season">Season</label>
+          <input type="number" id="e-season" name="season" min="0">
+        </div>
+        <div>
+          <label for="e-episode">Episode Number</label>
+          <input type="number" id="e-episode" name="episode" min="0">
+        </div>
+      </div>
+      <div style="margin: 8px 0;">
+        <label><input type="checkbox" id="e-explicit" name="explicit"> Explicit</label>
+      </div>
+      <div class="actions">
+        <button type="submit">Save Changes</button>
+        <button type="button" class="secondary" id="edit-cancel">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const API = {
+  getEpisodes: () => fetch('/api/episodes').then(r => r.json()),
+  getEpisode: (guid) => fetch(`/api/episodes/${encodeURIComponent(guid)}`).then(r => r.json()),
+  updateEpisode: (guid, data) => fetch(`/api/episodes/${encodeURIComponent(guid)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+  }),
+  deleteEpisode: (guid) => fetch(`/api/episodes/${encodeURIComponent(guid)}`, { method: 'DELETE' }),
+  getPodcast: () => fetch('/api/podcast').then(r => r.json()),
+  updatePodcast: (data) => fetch('/api/podcast', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+  }),
+  upload: (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return fetch('/api/upload', { method: 'POST', body: fd });
+  }
+};
+
+function showMessage(text, type) {
+  const el = document.getElementById('message');
+  el.textContent = text;
+  el.className = 'message show ' + (type || 'success');
+  setTimeout(() => el.className = 'message', 4000);
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleString();
+}
+
+function formatDuration(s) {
+  if (!s) return '-';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  return `${m}:${String(sec).padStart(2,'0')}`;
+}
+
+async function loadEpisodes() {
+  const container = document.getElementById('episodes-list');
+  try {
+    const episodes = await API.getEpisodes();
+    if (!episodes || episodes.length === 0) {
+      container.innerHTML = '<p class="empty">No episodes yet. Upload one above.</p>';
+      return;
+    }
+    const html = `<table>
+      <thead>
+        <tr><th>Title</th><th>Duration</th><th>Published</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        ${episodes.map(ep => `
+          <tr>
+            <td>${escapeHtml(ep.title)}</td>
+            <td>${formatDuration(ep.duration)}</td>
+            <td>${formatDate(ep.pub_date)}</td>
+            <td>
+              <div class="actions">
+                <button class="secondary" onclick="openEdit('${escapeHtml(ep.guid)}')">Edit</button>
+                <button class="danger" onclick="deleteEpisode('${escapeHtml(ep.guid)}')">Delete</button>
+              </div>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = '<p class="empty">Failed to load episodes.</p>';
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function loadPodcast() {
+  try {
+    const p = await API.getPodcast();
+    document.getElementById('p-title').value = p.title || '';
+    document.getElementById('p-description').value = p.description || '';
+    document.getElementById('p-author').value = p.author || '';
+    document.getElementById('p-email').value = p.email || '';
+    document.getElementById('p-copyright').value = p.copyright || '';
+    document.getElementById('p-image').value = p.image_url || '';
+    document.getElementById('p-category').value = p.category || '';
+    document.getElementById('p-language').value = p.language || 'en-us';
+    document.getElementById('p-explicit').checked = !!p.explicit;
+  } catch (err) {
+    showMessage('Failed to load podcast settings', 'error');
+  }
+}
+
+document.getElementById('podcast-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const data = {
+    title: document.getElementById('p-title').value,
+    description: document.getElementById('p-description').value,
+    author: document.getElementById('p-author').value,
+    email: document.getElementById('p-email').value,
+    copyright: document.getElementById('p-copyright').value,
+    image_url: document.getElementById('p-image').value,
+    category: document.getElementById('p-category').value,
+    language: document.getElementById('p-language').value,
+    explicit: document.getElementById('p-explicit').checked,
+  };
+  try {
+    const res = await API.updatePodcast(data);
+    if (!res.ok) throw new Error('Save failed');
+    showMessage('Podcast settings saved.');
+  } catch (err) {
+    showMessage('Failed to save podcast settings.', 'error');
+  }
+});
+
+const uploadArea = document.getElementById('upload-area');
+const uploadInput = document.getElementById('upload-input');
+const uploadStatus = document.getElementById('upload-status');
+
+uploadArea.addEventListener('click', () => uploadInput.click());
+uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+uploadArea.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadArea.classList.remove('dragover');
+  const files = e.dataTransfer.files;
+  if (files.length) handleUpload(files[0]);
+});
+uploadInput.addEventListener('change', () => {
+  if (uploadInput.files.length) handleUpload(uploadInput.files[0]);
+});
+
+async function handleUpload(file) {
+  uploadStatus.innerHTML = '<span class="spinner"></span> Uploading...';
+  try {
+    const res = await API.upload(file);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Upload failed');
+    }
+    uploadStatus.textContent = `Uploaded: ${file.name}`;
+    showMessage('Episode uploaded successfully.');
+    loadEpisodes();
+  } catch (err) {
+    uploadStatus.textContent = '';
+    showMessage(err.message, 'error');
+  }
+}
+
+async function openEdit(guid) {
+  try {
+    const ep = await API.getEpisode(guid);
+    document.getElementById('e-guid').value = ep.guid;
+    document.getElementById('e-title').value = ep.title || '';
+    document.getElementById('e-description').value = ep.description || '';
+    document.getElementById('e-duration').value = ep.duration || 0;
+    document.getElementById('e-season').value = ep.season || 0;
+    document.getElementById('e-episode').value = ep.episode || 0;
+    document.getElementById('e-explicit').checked = !!ep.explicit;
+    document.getElementById('edit-modal').classList.add('show');
+  } catch (err) {
+    showMessage('Failed to load episode.', 'error');
+  }
+}
+
+document.getElementById('edit-cancel').addEventListener('click', () => {
+  document.getElementById('edit-modal').classList.remove('show');
+});
+
+document.getElementById('edit-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const guid = document.getElementById('e-guid').value;
+  const data = {
+    title: document.getElementById('e-title').value,
+    description: document.getElementById('e-description').value,
+    duration: parseInt(document.getElementById('e-duration').value, 10) || 0,
+    season: parseInt(document.getElementById('e-season').value, 10) || 0,
+    episode: parseInt(document.getElementById('e-episode').value, 10) || 0,
+    explicit: document.getElementById('e-explicit').checked,
+  };
+  try {
+    const res = await API.updateEpisode(guid, data);
+    if (!res.ok) throw new Error('Update failed');
+    document.getElementById('edit-modal').classList.remove('show');
+    showMessage('Episode updated.');
+    loadEpisodes();
+  } catch (err) {
+    showMessage('Failed to update episode.', 'error');
+  }
+});
+
+async function deleteEpisode(guid) {
+  if (!confirm('Delete this episode?')) return;
+  try {
+    const res = await API.deleteEpisode(guid);
+    if (!res.ok) throw new Error('Delete failed');
+    showMessage('Episode deleted.');
+    loadEpisodes();
+  } catch (err) {
+    showMessage('Failed to delete episode.', 'error');
+  }
+}
+
+loadPodcast();
+loadEpisodes();
+</script>
+</body>
+</html>

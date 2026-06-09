@@ -118,7 +118,14 @@ func TestMiddleware(t *testing.T) {
 
 func TestFeedEndpoint(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	cfg := config.Config{
+		Port:       "8080",
+		StaticPath: tmpDir,
+		Podcast: config.PodcastMeta{
+			Title:    "neoncast Feed",
+			Language: "en-us",
+		},
+	}
 	st := store.New(t.TempDir())
 
 	srv := New(cfg, st)
@@ -151,7 +158,15 @@ func TestFeedEndpoint(t *testing.T) {
 
 func TestFeedWithEpisodes(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := config.Config{Port: "8080", StaticPath: tmpDir, ContentPath: tmpDir}
+	cfg := config.Config{
+		Port:        "8080",
+		StaticPath:  tmpDir,
+		ContentPath: tmpDir,
+		Podcast: config.PodcastMeta{
+			Title:    "neoncast Feed",
+			Language: "en-us",
+		},
+	}
 	st := store.New(t.TempDir())
 
 	// Add a test episode

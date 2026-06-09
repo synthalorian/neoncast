@@ -66,6 +66,7 @@ func main() {
 	fmt.Printf("server listening on %s\n", addr)
 	fmt.Printf("health check: %s/health\n", addr)
 	fmt.Printf("feed: %s/feed\n", addr)
+	fmt.Printf("admin dashboard: %s/admin\n", addr)
 	fmt.Printf("watch directory: %s\n", cfg.WatchPath)
 	fmt.Printf("content directory: %s\n", cfg.ContentPath)
 
