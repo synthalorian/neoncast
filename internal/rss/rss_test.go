@@ -39,7 +39,7 @@ func TestGenerateBasic(t *testing.T) {
 		},
 	}
 
-	data, err := Generate(podcast, episodes)
+	data, err := Generate(podcast, episodes, nil, "")
 	if err != nil {
 		t.Fatalf("generate rss: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestGenerateExplicit(t *testing.T) {
 		Explicit: true,
 	}
 
-	data, err := Generate(podcast, nil)
+	data, err := Generate(podcast, nil, nil, "")
 	if err != nil {
 		t.Fatalf("generate rss: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestGenerateNoEpisodes(t *testing.T) {
 		Link:        "https://example.com",
 	}
 
-	data, err := Generate(podcast, nil)
+	data, err := Generate(podcast, nil, nil, "")
 	if err != nil {
 		t.Fatalf("generate rss: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestGenerateMinimalEpisode(t *testing.T) {
 		},
 	}
 
-	data, err := Generate(podcast, episodes)
+	data, err := Generate(podcast, episodes, nil, "")
 	if err != nil {
 		t.Fatalf("generate rss: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestGenerateMultipleEpisodes(t *testing.T) {
 		},
 	}
 
-	data, err := Generate(podcast, episodes)
+	data, err := Generate(podcast, episodes, nil, "")
 	if err != nil {
 		t.Fatalf("generate rss: %v", err)
 	}
@@ -288,6 +288,55 @@ func TestFormatDuration(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("formatDuration(%d) = %q, want %q", tt.input, got, tt.expected)
 		}
+	}
+}
+
+func TestGenerateWebSubLinks(t *testing.T) {
+	podcast := models.Podcast{
+		Title: "WebSub Podcast",
+		Link:  "https://example.com",
+	}
+
+	hubs := []string{"https://hub1.example.com/", "https://hub2.example.com/"}
+	feedURL := "https://example.com/feed"
+
+	data, err := Generate(podcast, nil, hubs, feedURL)
+	if err != nil {
+		t.Fatalf("generate rss: %v", err)
+	}
+
+	output := string(data)
+	if !strings.Contains(output, `xmlns:atom="http://www.w3.org/2005/Atom"`) {
+		t.Error("expected atom namespace")
+	}
+	if !strings.Contains(output, `<atom:link rel="self" type="application/rss+xml" href="https://example.com/feed"></atom:link>`) {
+		t.Error("expected atom self link")
+	}
+	if !strings.Contains(output, `<atom:link rel="hub" href="https://hub1.example.com/"></atom:link>`) {
+		t.Error("expected first hub link")
+	}
+	if !strings.Contains(output, `<atom:link rel="hub" href="https://hub2.example.com/"></atom:link>`) {
+		t.Error("expected second hub link")
+	}
+}
+
+func TestGenerateNoWebSubLinks(t *testing.T) {
+	podcast := models.Podcast{
+		Title: "Plain Podcast",
+		Link:  "https://example.com",
+	}
+
+	data, err := Generate(podcast, nil, nil, "")
+	if err != nil {
+		t.Fatalf("generate rss: %v", err)
+	}
+
+	output := string(data)
+	if strings.Contains(output, "atom:link") {
+		t.Error("expected no atom links when hubs and feedURL are empty")
+	}
+	if strings.Contains(output, "xmlns:atom") {
+		t.Error("expected no atom namespace when no atom links are present")
 	}
 }
 

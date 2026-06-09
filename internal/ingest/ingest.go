@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -12,19 +13,25 @@ import (
 	"neoncast/internal/store"
 )
 
+type publisher interface {
+	Publish(ctx context.Context) error
+}
+
 // Pipeline processes audio files into episodes.
 type Pipeline struct {
 	store       *store.Store
 	contentPath string
 	baseURL     string
+	publisher   publisher
 }
 
 // New creates an ingest pipeline.
-func New(s *store.Store, contentPath, baseURL string) *Pipeline {
+func New(s *store.Store, contentPath, baseURL string, pub publisher) *Pipeline {
 	return &Pipeline{
 		store:       s,
 		contentPath: contentPath,
 		baseURL:     strings.TrimRight(baseURL, "/"),
+		publisher:   pub,
 	}
 }
 
@@ -110,7 +117,15 @@ func (p *Pipeline) process(path string) error {
 		return fmt.Errorf("save store: %w", err)
 	}
 
+	p.notifyHubs()
 	return nil
+}
+
+func (p *Pipeline) notifyHubs() {
+	if p.publisher == nil {
+		return
+	}
+	go p.publisher.Publish(context.Background())
 }
 
 func copyFile(src, dst string) error {

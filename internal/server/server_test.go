@@ -1,12 +1,17 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,7 +26,7 @@ func TestNew(t *testing.T) {
 	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
 	st := store.New(tmpDir)
 
-	srv := New(cfg, st, nil)
+	srv := New(cfg, st, nil, nil)
 
 	if srv == nil {
 		t.Fatal("expected server, got nil")
@@ -39,7 +44,7 @@ func TestHealthEndpoint(t *testing.T) {
 	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
 	st := store.New(tmpDir)
 
-	srv := New(cfg, st, nil)
+	srv := New(cfg, st, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -67,7 +72,7 @@ func TestStaticFileServing(t *testing.T) {
 	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
 	st := store.New(t.TempDir())
 
-	srv := New(cfg, st, nil)
+	srv := New(cfg, st, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/test.txt", nil)
 	rec := httptest.NewRecorder()
@@ -89,7 +94,7 @@ func TestStaticFileNotFound(t *testing.T) {
 	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
 	st := store.New(t.TempDir())
 
-	srv := New(cfg, st, nil)
+	srv := New(cfg, st, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/nonexistent.txt", nil)
 	rec := httptest.NewRecorder()
@@ -106,7 +111,7 @@ func TestMiddleware(t *testing.T) {
 	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
 	st := store.New(t.TempDir())
 
-	srv := New(cfg, st, nil)
+	srv := New(cfg, st, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -131,7 +136,7 @@ func TestFeedEndpoint(t *testing.T) {
 	}
 	st := store.New(t.TempDir())
 
-	srv := New(cfg, st, nil)
+	srv := New(cfg, st, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/feed", nil)
 	rec := httptest.NewRecorder()
@@ -181,7 +186,7 @@ func TestFeedWithEpisodes(t *testing.T) {
 	})
 	_ = st.Save()
 
-	srv := New(cfg, st, nil)
+	srv := New(cfg, st, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/feed", nil)
 	rec := httptest.NewRecorder()
@@ -211,7 +216,7 @@ func TestAnalyticsDownloadsEndpoint(t *testing.T) {
 	an.Record(analytics.DownloadEvent{EpisodeGUID: "ep-001", IP: "2.2.2.2"})
 	an.Record(analytics.DownloadEvent{EpisodeGUID: "ep-002", IP: "3.3.3.3"})
 
-	srv := New(cfg, st, an)
+	srv := New(cfg, st, an, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/analytics/downloads", nil)
 	rec := httptest.NewRecorder()
@@ -240,7 +245,7 @@ func TestAnalyticsSummaryEndpoint(t *testing.T) {
 	an.Record(analytics.DownloadEvent{EpisodeGUID: "ep-001", IP: "1.1.1.1", UserAgent: "Mozilla/5.0"})
 	an.Record(analytics.DownloadEvent{EpisodeGUID: "ep-002", IP: "2.2.2.2", UserAgent: "curl/7.0"})
 
-	srv := New(cfg, st, an)
+	srv := New(cfg, st, an, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/analytics/summary", nil)
 	rec := httptest.NewRecorder()
@@ -268,7 +273,7 @@ func TestAnalyticsRecentEndpoint(t *testing.T) {
 
 	an.Record(analytics.DownloadEvent{EpisodeGUID: "ep-001", IP: "1.1.1.1"})
 
-	srv := New(cfg, st, an)
+	srv := New(cfg, st, an, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/analytics/recent", nil)
 	rec := httptest.NewRecorder()
@@ -295,7 +300,7 @@ func TestAnalyticsRecentLimit(t *testing.T) {
 		an.Record(analytics.DownloadEvent{EpisodeGUID: fmt.Sprintf("ep-%d", i)})
 	}
 
-	srv := New(cfg, st, an)
+	srv := New(cfg, st, an, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/analytics/recent?limit=2", nil)
 	rec := httptest.NewRecorder()
@@ -318,7 +323,7 @@ func TestAnalyticsEndpointsUnavailable(t *testing.T) {
 	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
 	st := store.New(tmpDir)
 
-	srv := New(cfg, st, nil)
+	srv := New(cfg, st, nil, nil)
 
 	endpoints := []string{
 		"/api/analytics/downloads",
@@ -356,7 +361,7 @@ func TestAnalyticsTrackDownload(t *testing.T) {
 	})
 	_ = os.WriteFile(filepath.Join(contentDir, "analytics-test.mp3"), []byte("fake audio"), 0644)
 
-	srv := New(cfg, st, an)
+	srv := New(cfg, st, an, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/episodes/analytics-test.mp3", nil)
 	rec := httptest.NewRecorder()
@@ -379,5 +384,94 @@ func TestAnalyticsTrackDownload(t *testing.T) {
 	}
 	if recent[0].EpisodeTitle != "Analytics Test" {
 		t.Errorf("expected title 'Analytics Test', got %s", recent[0].EpisodeTitle)
+	}
+}
+
+type fakePublisher struct {
+	calls atomic.Int32
+}
+
+func (f *fakePublisher) Publish(ctx context.Context) error {
+	f.calls.Add(1)
+	return nil
+}
+
+func TestFeedIncludesWebSubLinks(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.Config{
+		Port:    "8080",
+		BaseURL: "https://podcast.example.com",
+		HubURLs: []string{"https://hub.example.com/"},
+		Podcast: config.PodcastMeta{
+			Title:    "neoncast Feed",
+			Language: "en-us",
+		},
+		StaticPath: tmpDir,
+	}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/feed", nil)
+	rec := httptest.NewRecorder()
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `xmlns:atom="http://www.w3.org/2005/Atom"`) {
+		t.Error("expected atom namespace in feed")
+	}
+	if !strings.Contains(body, `<atom:link rel="self" type="application/rss+xml" href="https://podcast.example.com/feed"></atom:link>`) {
+		t.Error("expected atom self link")
+	}
+	if !strings.Contains(body, `<atom:link rel="hub" href="https://hub.example.com/"></atom:link>`) {
+		t.Error("expected atom hub link")
+	}
+}
+
+func TestUploadNotifiesPublisher(t *testing.T) {
+	tmpDir := t.TempDir()
+	contentDir := t.TempDir()
+	cfg := config.Config{
+		Port:        "8080",
+		StaticPath:  tmpDir,
+		ContentPath: contentDir,
+		BaseURL:     "https://podcast.example.com",
+		HubURLs:     []string{"https://hub.example.com/"},
+	}
+	st := store.New(t.TempDir())
+	pub := &fakePublisher{}
+
+	srv := New(cfg, st, nil, pub)
+
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	part, err := mw.CreateFormFile("file", "upload-test.mp3")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := io.WriteString(part, "fake audio"); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/upload", &b)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if pub.calls.Load() != 1 {
+		t.Errorf("expected publisher to be called once, got %d", pub.calls.Load())
 	}
 }

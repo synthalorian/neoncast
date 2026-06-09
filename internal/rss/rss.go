@@ -8,34 +8,47 @@ import (
 	"neoncast/internal/models"
 )
 
-const itunesNS = "http://www.itunes.com/dtds/podcast-1.0.dtd"
+const (
+	itunesNS = "http://www.itunes.com/dtds/podcast-1.0.dtd"
+	atomNS   = "http://www.w3.org/2005/Atom"
+)
 
 // RSS is the root rss element.
 type RSS struct {
 	XMLName xml.Name `xml:"rss"`
 	NS      string   `xml:"xmlns:itunes,attr"`
+	AtomNS  string   `xml:"xmlns:atom,attr,omitempty"`
 	Version string   `xml:"version,attr"`
 	Channel Channel  `xml:"channel"`
 }
 
+// AtomLink represents an Atom link element for self/hub discovery.
+type AtomLink struct {
+	XMLName xml.Name `xml:"atom:link"`
+	Rel     string   `xml:"rel,attr"`
+	Type    string   `xml:"type,attr,omitempty"`
+	Href    string   `xml:"href,attr"`
+}
+
 // Channel represents the podcast channel metadata.
 type Channel struct {
-	Title          string           `xml:"title"`
-	Description    string           `xml:"description"`
-	Link           string           `xml:"link"`
-	Language       string           `xml:"language,omitempty"`
-	Copyright      string           `xml:"copyright,omitempty"`
-	LastBuildDate  string           `xml:"lastBuildDate"`
-	PubDate        string           `xml:"pubDate,omitempty"`
-	TTL            int              `xml:"ttl,omitempty"`
-	Image          *Image           `xml:"image,omitempty"`
-	ITunesAuthor   string           `xml:"itunes:author,omitempty"`
-	ITunesCategory *ITunesCategory  `xml:"itunes:category,omitempty"`
-	ITunesExplicit string           `xml:"itunes:explicit"`
-	ITunesImage    *ITunesImage     `xml:"itunes:image,omitempty"`
-	ITunesOwner    *ITunesOwner     `xml:"itunes:owner,omitempty"`
-	ITunesType     string           `xml:"itunes:type,omitempty"`
-	Items          []Item           `xml:"item"`
+	Title          string          `xml:"title"`
+	Description    string          `xml:"description"`
+	Link           string          `xml:"link"`
+	AtomLinks      []AtomLink      `xml:"atom:link"`
+	Language       string          `xml:"language,omitempty"`
+	Copyright      string          `xml:"copyright,omitempty"`
+	LastBuildDate  string          `xml:"lastBuildDate"`
+	PubDate        string          `xml:"pubDate,omitempty"`
+	TTL            int             `xml:"ttl,omitempty"`
+	Image          *Image          `xml:"image,omitempty"`
+	ITunesAuthor   string          `xml:"itunes:author,omitempty"`
+	ITunesCategory *ITunesCategory `xml:"itunes:category,omitempty"`
+	ITunesExplicit string          `xml:"itunes:explicit"`
+	ITunesImage    *ITunesImage    `xml:"itunes:image,omitempty"`
+	ITunesOwner    *ITunesOwner    `xml:"itunes:owner,omitempty"`
+	ITunesType     string          `xml:"itunes:type,omitempty"`
+	Items          []Item          `xml:"item"`
 }
 
 // Image is the standard RSS image element.
@@ -111,20 +124,34 @@ func formatDate(t time.Time) string {
 }
 
 // Generate creates an RSS 2.0 feed with iTunes extensions from podcast and episode data.
-func Generate(podcast models.Podcast, episodes []models.Episode) ([]byte, error) {
+// hubURLs are advertised as WebSub hubs via atom:link elements; feedURL is advertised as the self link.
+func Generate(podcast models.Podcast, episodes []models.Episode, hubURLs []string, feedURL string) ([]byte, error) {
 	now := time.Now()
 
 	ch := Channel{
-		Title:         podcast.Title,
-		Description:   podcast.Description,
-		Link:          podcast.Link,
-		Language:      podcast.Language,
-		Copyright:     podcast.Copyright,
-		LastBuildDate: formatDate(now),
-		TTL:           60,
-		ITunesAuthor:  podcast.Author,
+		Title:          podcast.Title,
+		Description:    podcast.Description,
+		Link:           podcast.Link,
+		Language:       podcast.Language,
+		Copyright:      podcast.Copyright,
+		LastBuildDate:  formatDate(now),
+		TTL:            60,
+		ITunesAuthor:   podcast.Author,
 		ITunesExplicit: boolToExplicit(podcast.Explicit),
-		ITunesType:    "episodic",
+		ITunesType:     "episodic",
+	}
+
+	if feedURL != "" {
+		ch.AtomLinks = append(ch.AtomLinks, AtomLink{
+			Rel:  "self",
+			Type: "application/rss+xml",
+			Href: feedURL,
+		})
+	}
+	for _, hub := range hubURLs {
+		if hub != "" {
+			ch.AtomLinks = append(ch.AtomLinks, AtomLink{Rel: "hub", Href: hub})
+		}
 	}
 
 	if podcast.ImageURL != "" {
@@ -187,6 +214,9 @@ func Generate(podcast models.Podcast, episodes []models.Episode) ([]byte, error)
 		NS:      itunesNS,
 		Version: "2.0",
 		Channel: ch,
+	}
+	if len(ch.AtomLinks) > 0 {
+		rss.AtomNS = atomNS
 	}
 
 	// Marshal with indentation for readability
