@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
+	"neoncast/internal/analytics"
 	"neoncast/internal/config"
 	"neoncast/internal/models"
 	"neoncast/internal/rss"
@@ -21,13 +23,14 @@ import (
 
 // Server wraps the Echo instance and dependencies.
 type Server struct {
-	echo  *echo.Echo
-	cfg   config.Config
-	store *store.Store
+	echo      *echo.Echo
+	cfg       config.Config
+	store     *store.Store
+	analytics *analytics.Analytics
 }
 
 // New creates a new Server with routes registered.
-func New(cfg config.Config, st *store.Store) *Server {
+func New(cfg config.Config, st *store.Store, an *analytics.Analytics) *Server {
 	e := echo.New()
 	e.HideBanner = true
 
@@ -38,9 +41,10 @@ func New(cfg config.Config, st *store.Store) *Server {
 	e.Use(middleware.CORS())
 
 	s := &Server{
-		echo:  e,
-		cfg:   cfg,
-		store: st,
+		echo:      e,
+		cfg:       cfg,
+		store:     st,
+		analytics: an,
 	}
 
 	s.registerRoutes()
@@ -52,9 +56,12 @@ func New(cfg config.Config, st *store.Store) *Server {
 func (s *Server) registerRoutes() {
 	s.echo.GET("/health", s.handleHealth)
 	s.echo.GET("/feed", s.handleFeed)
+
+	if s.analytics != nil {
+		s.echo.Use(s.analytics.Track(s.store))
+	}
 	s.echo.Static("/episodes", s.cfg.ContentPath)
 
-	// Admin API
 	s.echo.GET("/api/episodes", s.handleListEpisodes)
 	s.echo.GET("/api/episodes/:guid", s.handleGetEpisode)
 	s.echo.PUT("/api/episodes/:guid", s.handleUpdateEpisode)
@@ -62,6 +69,10 @@ func (s *Server) registerRoutes() {
 	s.echo.POST("/api/upload", s.handleUpload)
 	s.echo.GET("/api/podcast", s.handleGetPodcast)
 	s.echo.PUT("/api/podcast", s.handleUpdatePodcast)
+
+	s.echo.GET("/api/analytics/downloads", s.handleAnalyticsDownloads)
+	s.echo.GET("/api/analytics/summary", s.handleAnalyticsSummary)
+	s.echo.GET("/api/analytics/recent", s.handleAnalyticsRecent)
 
 	// Admin dashboard
 	s.echo.File("/admin", filepath.Join(s.cfg.StaticPath, "dashboard.html"))
@@ -320,6 +331,44 @@ func (s *Server) handleUpdatePodcast(c echo.Context) error {
 	s.cfg.Podcast.Language = req.Language
 
 	return c.JSON(http.StatusOK, s.cfg.Podcast)
+}
+
+func (s *Server) handleAnalyticsDownloads(c echo.Context) error {
+	if s.analytics == nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{
+			"error": "analytics not available",
+		})
+	}
+
+	summary := s.analytics.Summary()
+	return c.JSON(http.StatusOK, summary.ByEpisode)
+}
+
+func (s *Server) handleAnalyticsSummary(c echo.Context) error {
+	if s.analytics == nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{
+			"error": "analytics not available",
+		})
+	}
+
+	return c.JSON(http.StatusOK, s.analytics.Summary())
+}
+
+func (s *Server) handleAnalyticsRecent(c echo.Context) error {
+	if s.analytics == nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{
+			"error": "analytics not available",
+		})
+	}
+
+	limit := 50
+	if l := c.QueryParam("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 1000 {
+			limit = parsed
+		}
+	}
+
+	return c.JSON(http.StatusOK, s.analytics.Recent(limit))
 }
 
 // Start begins listening for requests.
