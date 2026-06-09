@@ -4,48 +4,25 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
-	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
+	"neoncast/internal/config"
 	"neoncast/internal/models"
 	"neoncast/internal/rss"
+	"neoncast/internal/store"
 )
 
-// Config holds server configuration.
-type Config struct {
-	Port       string
-	StaticPath string
-}
-
-// DefaultConfig returns sensible defaults.
-func DefaultConfig() Config {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	staticPath := os.Getenv("STATIC_PATH")
-	if staticPath == "" {
-		staticPath = "static"
-	}
-
-	return Config{
-		Port:       port,
-		StaticPath: staticPath,
-	}
-}
-
-// Server wraps the Echo instance.
+// Server wraps the Echo instance and dependencies.
 type Server struct {
-	echo *echo.Echo
-	cfg  Config
+	echo  *echo.Echo
+	cfg   config.Config
+	store *store.Store
 }
 
 // New creates a new Server with routes registered.
-func New(cfg Config) *Server {
+func New(cfg config.Config, st *store.Store) *Server {
 	e := echo.New()
 	e.HideBanner = true
 
@@ -55,8 +32,9 @@ func New(cfg Config) *Server {
 	e.Use(middleware.RequestID())
 
 	s := &Server{
-		echo: e,
-		cfg:  cfg,
+		echo:  e,
+		cfg:   cfg,
+		store: st,
 	}
 
 	s.registerRoutes()
@@ -68,6 +46,7 @@ func New(cfg Config) *Server {
 func (s *Server) registerRoutes() {
 	s.echo.GET("/health", s.handleHealth)
 	s.echo.GET("/feed", s.handleFeed)
+	s.echo.Static("/episodes", s.cfg.ContentPath)
 	s.echo.Static("/", s.cfg.StaticPath)
 }
 
@@ -80,28 +59,15 @@ func (s *Server) handleHealth(c echo.Context) error {
 
 func (s *Server) handleFeed(c echo.Context) error {
 	podcast := models.Podcast{
-		Title:       "neoncast Demo Feed",
-		Description: "Auto-generated demo podcast feed",
+		Title:       "neoncast Feed",
+		Description: "Auto-generated podcast feed",
 		Link:        "http://localhost:" + s.cfg.Port,
 		Language:    "en-us",
 		Author:      "neoncast",
 		Explicit:    false,
 	}
 
-	// Demo episodes for Phase 2; later phases will wire real data
-	episodes := []models.Episode{
-		{
-			Title:       "Welcome to neoncast",
-			Description: "This is a demo episode.",
-			GUID:        "demo-001",
-			PubDate:     time.Now().Add(-24 * time.Hour),
-			Duration:    600,
-			FileURL:     "/episodes/demo-001.mp3",
-			FileLength:  1234567,
-			FileType:    "audio/mpeg",
-			Explicit:    false,
-		},
-	}
+	episodes := s.store.All()
 
 	data, err := rss.Generate(podcast, episodes)
 	if err != nil {
