@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"neoncast/internal/analytics"
 	"neoncast/internal/config"
 	"neoncast/internal/ingest"
 	"neoncast/internal/server"
@@ -33,8 +34,13 @@ func main() {
 		log.Fatalf("load store: %v", err)
 	}
 
+	an := analytics.New(cfg.DataPath)
+	if err := an.Load(); err != nil {
+		log.Fatalf("load analytics: %v", err)
+	}
+
 	// Create server
-	srv := server.New(cfg, st)
+	srv := server.New(cfg, st, an)
 
 	// Create watcher + ingest pipeline
 	baseURL := fmt.Sprintf("http://localhost:%s", cfg.Port)
