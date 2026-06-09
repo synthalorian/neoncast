@@ -7,47 +7,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"neoncast/internal/config"
+	"neoncast/internal/models"
+	"neoncast/internal/store"
 )
 
-func TestDefaultConfig(t *testing.T) {
-	// Save and restore env vars
-	origPort := os.Getenv("PORT")
-	origStatic := os.Getenv("STATIC_PATH")
-	defer func() {
-		os.Setenv("PORT", origPort)
-		os.Setenv("STATIC_PATH", origStatic)
-	}()
-
-	t.Run("defaults", func(t *testing.T) {
-		os.Unsetenv("PORT")
-		os.Unsetenv("STATIC_PATH")
-
-		cfg := DefaultConfig()
-		if cfg.Port != "8080" {
-			t.Errorf("expected default port 8080, got %s", cfg.Port)
-		}
-		if cfg.StaticPath != "static" {
-			t.Errorf("expected default static path 'static', got %s", cfg.StaticPath)
-		}
-	})
-
-	t.Run("from env", func(t *testing.T) {
-		os.Setenv("PORT", "3000")
-		os.Setenv("STATIC_PATH", "/tmp/static")
-
-		cfg := DefaultConfig()
-		if cfg.Port != "3000" {
-			t.Errorf("expected port 3000, got %s", cfg.Port)
-		}
-		if cfg.StaticPath != "/tmp/static" {
-			t.Errorf("expected static path '/tmp/static', got %s", cfg.StaticPath)
-		}
-	})
-}
-
 func TestNew(t *testing.T) {
-	cfg := Config{Port: "8080", StaticPath: "static"}
-	srv := New(cfg)
+	tmpDir := t.TempDir()
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(tmpDir)
+
+	srv := New(cfg, st)
 
 	if srv == nil {
 		t.Fatal("expected server, got nil")
@@ -61,10 +32,11 @@ func TestNew(t *testing.T) {
 }
 
 func TestHealthEndpoint(t *testing.T) {
-	// Create a temp static dir for the test
 	tmpDir := t.TempDir()
-	cfg := Config{Port: "8080", StaticPath: tmpDir}
-	srv := New(cfg)
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(tmpDir)
+
+	srv := New(cfg, st)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -82,7 +54,6 @@ func TestHealthEndpoint(t *testing.T) {
 }
 
 func TestStaticFileServing(t *testing.T) {
-	// Create a temp static dir with a test file
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.txt")
 	content := "hello from static"
@@ -90,8 +61,10 @@ func TestStaticFileServing(t *testing.T) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	cfg := Config{Port: "8080", StaticPath: tmpDir}
-	srv := New(cfg)
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st)
 
 	req := httptest.NewRequest(http.MethodGet, "/test.txt", nil)
 	rec := httptest.NewRecorder()
@@ -110,8 +83,10 @@ func TestStaticFileServing(t *testing.T) {
 
 func TestStaticFileNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := Config{Port: "8080", StaticPath: tmpDir}
-	srv := New(cfg)
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st)
 
 	req := httptest.NewRequest(http.MethodGet, "/nonexistent.txt", nil)
 	rec := httptest.NewRecorder()
@@ -125,8 +100,10 @@ func TestStaticFileNotFound(t *testing.T) {
 
 func TestMiddleware(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := Config{Port: "8080", StaticPath: tmpDir}
-	srv := New(cfg)
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -141,8 +118,10 @@ func TestMiddleware(t *testing.T) {
 
 func TestFeedEndpoint(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := Config{Port: "8080", StaticPath: tmpDir}
-	srv := New(cfg)
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	srv := New(cfg, st)
 
 	req := httptest.NewRequest(http.MethodGet, "/feed", nil)
 	rec := httptest.NewRecorder()
@@ -165,13 +144,41 @@ func TestFeedEndpoint(t *testing.T) {
 	if !strings.Contains(body, `<rss xmlns:itunes=`) {
 		t.Error("expected rss root with itunes namespace")
 	}
-	if !strings.Contains(body, "<title>neoncast Demo Feed</title>") {
-		t.Error("expected demo podcast title")
+	if !strings.Contains(body, "<title>neoncast Feed</title>") {
+		t.Error("expected podcast title")
 	}
-	if !strings.Contains(body, "<title>Welcome to neoncast</title>") {
-		t.Error("expected demo episode title")
+}
+
+func TestFeedWithEpisodes(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.Config{Port: "8080", StaticPath: tmpDir, ContentPath: tmpDir}
+	st := store.New(t.TempDir())
+
+	// Add a test episode
+	ep := store.GenerateGUID("test-episode.mp3")
+	_ = st.Add(models.Episode{
+		Title:    "Test Episode",
+		GUID:     ep,
+		FileURL:  "/episodes/test-episode.mp3",
+	})
+	_ = st.Save()
+
+	srv := New(cfg, st)
+
+	req := httptest.NewRequest(http.MethodGet, "/feed", nil)
+	rec := httptest.NewRecorder()
+
+	srv.echo.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
 	}
-	if !strings.Contains(body, `<enclosure url="/episodes/demo-001.mp3"`) {
-		t.Error("expected enclosure element")
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "<title>Test Episode</title>") {
+		t.Errorf("expected episode title in feed, got:\n%s", body)
+	}
+	if !strings.Contains(body, `<enclosure url="/episodes/test-episode.mp3"`) {
+		t.Errorf("expected enclosure in feed, got:\n%s", body)
 	}
 }
