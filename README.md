@@ -1,3 +1,5 @@
+![neoncast](.github/preview.png)
+
 # neoncast
 
 > Self-hosted podcast hosting + RSS generator with built-in analytics, chapter markers, and WebSub support. Single binary deploy.
