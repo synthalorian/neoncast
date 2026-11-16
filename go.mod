@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/labstack/echo/v4 v4.16.3
+	github.com/labstack/echo/v4 v4.16.4
 )
 
 require (
